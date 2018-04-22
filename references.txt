@@ -1,0 +1,4 @@
+References:
+https://github.com/phips28/facebook-live-video/blob/master/src/index.js
+http://laical.blogspot.jp/2016/07/facebook-live-video-with-ffmpeg.html
+https://trac.ffmpeg.org/wiki/StreamingGuide
