@@ -17,7 +17,6 @@ namespace FFmpegOut {
 
         public class OutputInfo {
             public string dest;
-            public int framerate;
             public Preset preset;
             public bool recordCursor;
         }
@@ -54,58 +53,16 @@ namespace FFmpegOut {
 
         private Process subProcess;
 
-        #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-        void AddInputSourceSetting(StringBuilder stringBuilder) {
-            var titleKeywords = inputInfo.titleKeywords;
-            if(titleKeywords == null || titleKeywords.Length == 0) {
-                stringBuilder.Append(" -i desktop"); //whole virtual monitors
-            }
-            else {
-                var windowPtrs = WindowsUtility.FindWindowsWithText(titleKeywords[0]);
-                int maxNumMatch = 0;
-                string bestFitTitle = null;
-                int currentIndex = 0;
-                foreach(var winPtr in windowPtrs)
-                {
-                    int numMatch = 0;
-                    string name = WindowsUtility.GetWindowText(winPtr);
-                    for(int j = 1;j < titleKeywords.Length;j++) {
-                        if(name.Contains(titleKeywords[j])) {
-                            numMatch++;
-                        }
-                    }
-                    
-                    if(numMatch > maxNumMatch) {
-                        maxNumMatch = numMatch;
-                        bestFitTitle = name;
-                    }
-                    currentIndex++;
-                }
-
-                if(bestFitTitle != null) {
-                    stringBuilder.Append(" -i title=\"");
-                    stringBuilder.Append(bestFitTitle);
-                    stringBuilder.Append("\"");
-                }
-                else {
-                    stringBuilder.Append(" -i desktop"); //whole virtual monitors
-                }
-                
-            }
-        }
-        #endif
         public FFmpegScreenCapturer(InputInfo inputInfo, OutputInfo outputInfo) {
             this.outputInfo = outputInfo;
             this.inputInfo = inputInfo;
 
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.Append("-y"); //overwrite existing file without asking
-
+            
             //https://trac.ffmpeg.org/wiki/Capture/Desktop
             #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            stringBuilder.Append(" -f dshow -i audio=virtual-audio-capturer"); //one of audio recording plugin that can be used with directshow, you can download from here: https://github.com/rdp/virtual-audio-capture-grabber-device
-            stringBuilder.Append(String.Format(" -f gdigrab -draw_mouse {0}", outputInfo.recordCursor? 1:0));
-            AddInputSourceSetting(stringBuilder);
+            stringBuilder.Append(" -f dshow -i audio=\"virtual-audio-capturer\":video=\"screen-capture-recorder\""); //one of audio recording plugin that can be used with directshow, you can download from here: https://github.com/rdp/virtual-audio-capture-grabber-device
             #elif UNITY_STANDALONE_LINUX
             stringBuilder.Append(String.Format(" -f alsa -i hw:{0}", outputInfo.audioDeviceIndex)); //audio options(details: https://ffmpeg.org/ffmpeg-devices.html#alsa)
             stringBuilder.Append(String.Format(" -f x11grab -draw_mouse {0} -i :0.0", outputInfo.recordCursor? 1:0)); //video options(details: https://ffmpeg.org/ffmpeg-devices.html#x11grab)
@@ -144,34 +101,71 @@ namespace FFmpegOut {
             stringBuilder.Append(" -f flv ");
             stringBuilder.Append(outputInfo.dest); //it should be an url with rtmp protocol 
 
-            var info = new ProcessStartInfo(FFmpegConfig.BinaryPath, stringBuilder.ToString());
-            info.UseShellExecute = false;
-            info.CreateNoWindow = true;
-            info.RedirectStandardInput = true;
-            info.RedirectStandardOutput = true;
-            info.RedirectStandardError = true;
+            var opt = stringBuilder.ToString();
+            UnityEngine.Debug.Log(opt);
 
+            var process = new Process
+            {
+                StartInfo =
+                {
+                    FileName = FFmpegConfig.BinaryPath,
+
+                    // Replace Command line arguments here.
+                    Arguments = opt,
+
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true,
+                    
+                    // Redirect FFMpeg output.
+                    RedirectStandardError = true
+                },
+
+                // Get notified when ffmpeg writes to error stream.
+                EnableRaisingEvents = true
+            };
+
+            // Event handler to receive written data.
+            process.ErrorDataReceived += (s, e) => {
+                UnityEngine.Debug.Log(e);
+            };
+
+            process.Start();
+
+            // Start reading error stream.
+            process.BeginErrorReadLine();
+
+            subProcess = process;
         }
 
         public void Close()
         {
             if (subProcess == null) return;
 
-            subProcess.StandardInput.Close();
-            subProcess.WaitForExit();
-
-            var outputReader = subProcess.StandardError;
-            ErrorMsg = outputReader.ReadToEnd();
-
             subProcess.Close();
             subProcess.Dispose();
-
-            outputReader.Close();
-            outputReader.Dispose();
-
             subProcess = null;
-        }
 
+            KillAllFFMPEG();
+
+            UnityEngine.Debug.Log("ffmpeg close");
+        }
+        
+        private void KillAllFFMPEG()
+        {
+            Process killFfmpeg = new Process();
+            ProcessStartInfo taskkillStartInfo = new ProcessStartInfo
+            {
+                FileName = "taskkill",
+                Arguments = "/F /IM ffmpeg.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            killFfmpeg.StartInfo = taskkillStartInfo;
+            killFfmpeg.Start();
+        }
+        
 
     }
 
